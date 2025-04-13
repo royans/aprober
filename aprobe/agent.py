@@ -5,6 +5,248 @@ import socket
 from urllib.parse import urlparse # To help validate input
 from zoneinfo import ZoneInfo
 from google.adk.agents import Agent
+import nvdlib
+import cpe
+
+
+def TranslateCpeFormat(cpe_string: str, target_format: str) -> dict:
+    """
+    Translates a CPE string from its detected format to a specified target format
+    using the 'cpe' library.
+
+    Args:
+        cpe_string (str): The CPE string to translate (e.g., WFN, URI, FS, 2.3 format).
+        target_format (str): The desired output format. Supported values:
+                             '2.3' (for CPE 2.3 Formatted String)
+                             'fs' (for FileSystem representation)
+                             'uri' (for URI representation)
+                             'wfn' (for Well-Formed Name representation - returns 2.3 string)
+
+    Returns:
+        dict: A dictionary containing:
+            - 'status': 'success' or 'error'.
+            - 'original_cpe': The input CPE string.
+            - 'target_format': The requested target format.
+            - 'translated_cpe': The CPE string in the target format (str), or None on error.
+            - 'error_message': Description of the error (if status is 'error').
+    """
+    print(f"Attempting to translate CPE '{cpe_string}' to format '{target_format}'...")
+    try:
+        # Parse the input CPE string using cpe.CPE
+        cpe_obj = cpe.CPE(cpe_string)
+        print(f"Successfully parsed input CPE. Detected version: {cpe_obj.get_version()}")
+
+        translated_cpe = None
+        # Convert to the target format
+        # Use the appropriate methods available on the parsed CPE object
+        if target_format == '2.3':
+            # The as_cpe23_string() method should exist on the base CPE object
+            translated_cpe = cpe_obj.as_cpe23_string()
+        elif target_format == 'fs':
+            translated_cpe = cpe_obj.as_fs_string()
+        elif target_format == 'uri':
+            translated_cpe = cpe_obj.as_uri_string()
+        elif target_format == 'wfn':
+            # WFN is the internal representation; as_cpe23_string is a reliable string output
+            print("Note: 'wfn' represents the internal parsed structure. Returning CPE 2.3 string instead.")
+            translated_cpe = cpe_obj.as_cpe23_string()
+        else:
+            # Handle unsupported target format
+            error_msg = f"Unsupported target format: '{target_format}'. Supported formats: '2.3', 'fs', 'uri'."
+            print(error_msg)
+            return {
+                "status": "error",
+                "original_cpe": cpe_string,
+                "target_format": target_format,
+                "translated_cpe": None,
+                "error_message": error_msg,
+            }
+
+        print(f"Successfully translated to format '{target_format}'.")
+        return {
+            "status": "success",
+            "original_cpe": cpe_string,
+            "target_format": target_format,
+            "translated_cpe": translated_cpe,
+        }
+
+    # Catch the specific CPEError using cpe.CPEError
+    except cpe.CPEError as e:
+        # Handle errors during parsing (e.g., invalid CPE string)
+        error_msg = f"CPE parsing/translation error: {e}"
+        print(error_msg)
+        return {
+            "status": "error",
+            "original_cpe": cpe_string,
+            "target_format": target_format,
+            "translated_cpe": None,
+            "error_message": error_msg,
+        }
+    except AttributeError as e:
+        # Catch potential AttributeError if a method is missing (like the original error)
+        error_msg = f"CPE translation method error: {e}. The parsed CPE object might not support the requested conversion directly."
+        print(error_msg)
+        return {
+            "status": "error",
+            "original_cpe": cpe_string,
+            "target_format": target_format,
+            "translated_cpe": None,
+            "error_message": error_msg,
+        }
+    except Exception as e:
+        # Catch any other unexpected errors
+        error_msg = f"An unexpected error occurred during CPE translation ({type(e).__name__}): {e}"
+        print(error_msg)
+        return {
+            "status": "error",
+            "original_cpe": cpe_string,
+            "target_format": target_format,
+            "translated_cpe": None,
+            "error_message": error_msg,
+        }
+
+
+
+def GetCpeInfo(cpe_string: str) -> dict:
+    """
+    Retrieves information about a specific CPE (Common Platform Enumeration)
+    string and its associated CVEs from the National Vulnerability Database (NVD)
+    using the nvdlib library.
+
+    Args:
+        cpe_string (str): The CPE string to query (e.g., "cpe:2.3:o:microsoft:windows_10:1607:*:*:*:*:*:*:*").
+                          Must be in the CPE 2.3 format.
+
+    Returns:
+        dict: A dictionary containing:
+            - 'status': 'success' or 'error'.
+            - 'cpe_checked': The input CPE string.
+            - 'cpe_details': A dictionary with details of the first matching CPE found
+                             (or None if no match):
+                - 'name': The CPE string name.
+                - 'title': The human-readable title.
+                - 'created': Creation date (ISO format string).
+                - 'lastModified': Last modification date (ISO format string).
+                - 'deprecated': Boolean indicating if the CPE is deprecated.
+            - 'associated_cves': A list of dictionaries, each representing a CVE linked
+                                 to the CPE (limited results, e.g., first 10). Each dict contains:
+                - 'id': The CVE ID (e.g., "CVE-2021-12345").
+                - 'description': A summary of the vulnerability.
+                - 'cvss_v3_severity': The CVSS v3 base severity (e.g., "HIGH", "MEDIUM") or None.
+                - 'cvss_v3_score': The CVSS v3 base score (float) or None.
+                - 'cvss_v2_severity': The CVSS v2 base severity (e.g., "HIGH") or None (fallback).
+                - 'cvss_v2_score': The CVSS v2 base score (float) or None (fallback).
+                - 'published_date': CVE publication date (ISO format string).
+                - 'last_modified_date': CVE last modification date (ISO format string).
+                - 'url': Link to the NVD page for the CVE.
+            - 'error_message': Description of the error (if status is 'error').
+            - 'cve_search_limit_hit': Boolean indicating if the CVE search limit was reached.
+    """
+    # Basic validation of CPE format
+    if not isinstance(cpe_string, str) or not cpe_string.startswith("cpe:2.3:"):
+        return {
+            "status": "error",
+            "cpe_checked": cpe_string,
+            "error_message": "Invalid CPE string format. Must start with 'cpe:2.3:'.",
+            "cpe_details": None,
+            "associated_cves": [],
+        }
+
+    print(f"Querying NVD for CPE: {cpe_string}")
+    cpe_details_result = None
+    cve_list_result = []
+    cve_limit = 20 # How many associated CVEs to fetch at most
+    cve_search_limit_hit = False
+
+    try:
+        # --- Search for CPE Details ---
+        # Use cpeMatchString for exact or pattern matching based on the input string
+        # Limit to 1 as we typically want info for the specific string provided
+        print(f"Searching for CPE details using cpeMatchString...")
+        cpe_results = nvdlib.searchCPE(cpeMatchString=cpe_string, limit=1, key=None, delay=None) # Use delay=None for default handling
+
+        if cpe_results:
+            cpe_obj = cpe_results[0] # Get the first (and likely only) result
+            cpe_details_result = {
+                "name": getattr(cpe_obj, 'cpeName', 'N/A'),
+                "title": getattr(cpe_obj.title[0], 'title', 'N/A') if hasattr(cpe_obj, 'title') and cpe_obj.title else 'N/A',
+                "created": getattr(cpe_obj, 'created', 'N/A'),
+                "lastModified": getattr(cpe_obj, 'lastModified', 'N/A'),
+                "deprecated": getattr(cpe_obj, 'deprecated', False)
+            }
+            print(f"Found CPE details for: {cpe_details_result['name']}")
+        else:
+            print("No specific details found for this exact CPE string via searchCPE.")
+            # Still proceed to search for CVEs using this CPE name
+
+        # --- Search for Associated CVEs ---
+        # Use cpeName for finding CVEs linked to this CPE
+        print(f"Searching for CVEs associated with CPE: {cpe_string} (limit {cve_limit})...")
+        cve_results = nvdlib.searchCVE(cpeName=cpe_string, limit=cve_limit, key=None, delay=None)
+
+        if len(cve_results) == cve_limit:
+            cve_search_limit_hit = True
+            print(f"Reached CVE search limit ({cve_limit}). More CVEs might exist.")
+
+        print(f"Found {len(cve_results)} associated CVE(s).")
+        for cve in cve_results:
+            # Extract CVSS scores and severities carefully
+            cvss_v3_severity = None
+            cvss_v3_score = None
+            cvss_v2_severity = None
+            cvss_v2_score = None
+
+            # Prefer CVSS v3
+            if hasattr(cve, 'v3severity') and cve.v3severity:
+                 cvss_v3_severity = cve.v3severity
+                 cvss_v3_score = getattr(cve, 'v3score', None)
+            # Fallback to CVSS v2
+            elif hasattr(cve, 'v2severity') and cve.v2severity:
+                 cvss_v2_severity = cve.v2severity
+                 cvss_v2_score = getattr(cve, 'v2score', None)
+
+            cve_info = {
+                'id': getattr(cve, 'id', 'N/A'),
+                'description': getattr(cve.descriptions[0], 'value', 'No description available.') if hasattr(cve, 'descriptions') and cve.descriptions else 'No description available.',
+                'cvss_v3_severity': cvss_v3_severity,
+                'cvss_v3_score': cvss_v3_score,
+                'cvss_v2_severity': cvss_v2_severity,
+                'cvss_v2_score': cvss_v2_score,
+                'published_date': getattr(cve, 'published', 'N/A'),
+                'last_modified_date': getattr(cve, 'lastModified', 'N/A'),
+                'url': getattr(cve, 'url', '#') # Link to NVD entry
+            }
+            cve_list_result.append(cve_info)
+
+        return {
+            "status": "success",
+            "cpe_checked": cpe_string,
+            "cpe_details": cpe_details_result,
+            "associated_cves": cve_list_result,
+            "cve_search_limit_hit": cve_search_limit_hit
+        }
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error connecting to NVD: {e}"
+        print(error_msg)
+        return {
+            "status": "error",
+            "cpe_checked": cpe_string,
+            "error_message": error_msg,
+            "cpe_details": None,
+            "associated_cves": [],
+        }
+    except Exception as e:
+        # Catch potential errors from nvdlib or other issues
+        error_msg = f"An unexpected error occurred during NVD query ({type(e).__name__}): {e}"
+        print(error_msg)
+        return {
+            "status": "error",
+            "cpe_checked": cpe_string,
+            "error_message": error_msg,
+            "cpe_details": None,
+            "associated_cves": [],
+        }
 
 
 def NmapTCPVersionScan(target: str) -> dict:
@@ -680,8 +922,17 @@ root_agent = Agent(
         """I can take an IP address or hostname, probe it and 
         generate a professional looking (but short) report for 
         you to review. I will make an attempt to gather as much 
-        information about the host as possible and provide it in the report. """
+        information about the host as possible and provide it in the report. 
+        I'll try to document all ports which are open, what version of servers 
+        they are running and try to compare their CPEs with known vulnerabilities 
+        and report back anything which requires immediate patching.   """
     ),
-    tools=[NmapTCPVersionScan,NmapConnectTCPScan,GetWebServerHeader,GetSshServerVersion],
+    tools=[
+            NmapTCPVersionScan,
+            GetWebServerHeader,
+            GetSshServerVersion,
+            GetCpeInfo, 
+            TranslateCpeFormat,
+        ],
 )
  
