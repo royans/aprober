@@ -1,6 +1,6 @@
 # aprober
-An Agent based host prober - a quick use case of Google's ADK (Agent development kit).
-
+An Agent based host prober - probe a host/ip using nmap/curl/etc and report back a human readable report.
+* Primarily created to test the ease of using Google's ADK (Agent development kit).
 
 ## Setup
 * Clone this repository
