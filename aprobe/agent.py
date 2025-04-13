@@ -7,6 +7,176 @@ from zoneinfo import ZoneInfo
 from google.adk.agents import Agent
 
 
+def NmapTCPVersionScan(target: str) -> dict:
+    """Performs an Nmap TCP Connect scan (-sT) combined with version
+       detection (-sV) on a target host or IP address. Finds open TCP ports
+       and attempts to determine the service and version running on them.
+       Requires nmap to be installed but generally *does not* require
+       root privileges. Handles hostname inputs correctly by using the
+       resolved IP from results.
+
+    Args:
+        target (str): The hostname or IP address to scan.
+
+    Returns:
+        dict: A dictionary containing:
+              - 'status': 'success' or 'error'.
+              - 'port_info': A dictionary where keys are open TCP port numbers (int)
+                             and values are dictionaries containing service details
+                             (e.g., {'service': 'ssh', 'product': 'OpenSSH', 'version': '8.2p1'}).
+                             Returns an empty dict if no open ports with version info found.
+              - 'error_message': A description of the error (if failed).
+              - 'scanned_ip': The actual IP address scanned (if successful).
+    """
+    nm = None
+    original_target = str(target) # Keep original target for messages
+
+    try:
+        # --- Validate Target ---
+        # Attempt to resolve hostname/IP to catch basic errors early
+        try:
+            # Use socket.getaddrinfo for potentially more robust resolution (IPv4/IPv6)
+            # We only need to know if it *can* be resolved, not the specific IP yet.
+            socket.getaddrinfo(original_target, None)
+        except socket.gaierror:
+            return {
+                "status": "error",
+                "error_message": f"Could not resolve hostname/IP: {original_target}",
+            }
+        except Exception as e: # Catch other potential socket errors
+             return {
+                "status": "error",
+                "error_message": f"Error validating target {original_target}: {e}",
+            }
+
+        # --- Initialize Nmap Scanner ---
+        try:
+             nm = nmap.PortScanner()
+        except nmap.PortScannerError as e:
+             # Handle Nmap not found error during initialization
+            if "nmap program was not found" in str(e):
+                 error_msg = "Nmap executable not found. Please install Nmap and ensure it's in your system's PATH."
+            else:
+                 error_msg = f"Nmap initialization error: {e}"
+            return {
+                "status": "error",
+                "error_message": error_msg,
+            }
+
+
+        # --- Perform Scan ---
+        # -sT: TCP Connect scan
+        # -sV: Version detection
+        # You can add --version-intensity <0-9> for more or less thorough version probing
+        # e.g., arguments='-sT -sV --version-intensity 5'
+        # Default intensity is usually sufficient.
+        print(f"Starting Nmap TCP Version scan (-sT -sV) on {original_target}. This might take longer...")
+        scan_args = '-sT -sV'
+        scan_results = nm.scan(hosts=original_target, arguments=scan_args)
+        print("Scan complete.")
+
+        # --- Process Results ---
+        port_info = {} # Dictionary to store {port: {details}}
+
+        # Check if Nmap found any hosts at all.
+        if not nm.all_hosts():
+            error_output = "Scan completed but no hosts were found or up."
+            # Try to get more specific info from scanstats if available
+            if scan_results and 'nmap' in scan_results and 'scanstats' in scan_results['nmap']:
+                 stats = scan_results['nmap']['scanstats']
+                 down_hosts = stats.get('downhosts', '0')
+                 uphosts = stats.get('uphosts', '0')
+                 totalhosts = stats.get('totalhosts', 'unknown')
+                 error_output = f"{down_hosts}/{totalhosts} hosts down. "
+                 if uphosts == '0':
+                     error_output += "Target may be unresponsive or scan blocked. "
+                 if 'warning' in stats:
+                     error_output += f"Nmap warning: {stats['warning']}"
+
+            if "Couldn't resolve" in error_output:
+                 error_output = f"Nmap couldn't resolve host: {original_target}"
+
+            return {
+                "status": "error",
+                "error_message": f"Scan failed for target '{original_target}'. Reason: {error_output}",
+            }
+
+        # --- Get Resolved IP ---
+        scanned_ip = nm.all_hosts()[0]
+        print(f"Target '{original_target}' resolved to IP '{scanned_ip}' for scanning.")
+        host_info = nm[scanned_ip]
+
+        # Check host status
+        if host_info.state() != 'up':
+             return {
+                "status": "error",
+                "error_message": f"Host {scanned_ip} (target: {original_target}) reported as {host_info.state()}",
+             }
+
+        # Check if TCP protocol was scanned and has results
+        if 'tcp' not in host_info or not host_info['tcp']:
+             # Check if the scan was even attempted for TCP
+             scaninfo = nm.scaninfo()
+             if 'tcp' not in scaninfo.get('services', ''):
+                 return {
+                     "status": "error",
+                     "error_message": f"TCP scan was not performed or yielded no results for {scanned_ip} (target: {original_target}). Check scan arguments.",
+                 }
+             else:
+                 # TCP was scanned, but no ports found (open, closed, or filtered)
+                 # This case should ideally result in success but with empty port_info
+                 print(f"No TCP ports found (open, closed, or filtered) for {scanned_ip}.")
+                 # Proceed to return success with empty port_info below
+                 pass # Fall through to return success
+
+
+        # Extract open TCP ports and their version info
+        if 'tcp' in host_info:
+            tcp_ports = host_info['tcp']
+            for port, details in tcp_ports.items():
+                if details.get('state') == 'open':
+                    port_number = int(port)
+                    port_info[port_number] = {
+                        'service': details.get('name', ''), # Service name (e.g., http, ssh)
+                        'product': details.get('product', ''), # Specific product (e.g., Apache httpd, OpenSSH)
+                        'version': details.get('version', ''), # Version number (e.g., 2.4.41, 8.2p1)
+                        'extrainfo': details.get('extrainfo', ''), # Extra info (e.g., protocol, OS type)
+                        'cpe': details.get('cpe', '') # Common Platform Enumeration string
+                    }
+
+        return {
+            "status": "success",
+            "port_info": port_info, # Return dict of {port: details}
+            "scanned_ip": scanned_ip # Include the scanned IP
+        }
+
+    except nmap.PortScannerError as e:
+        # Catch errors during the scan execution phase
+        if "nmap program was not found" in str(e):
+             error_msg = "Nmap executable not found. Please install Nmap and ensure it's in your system's PATH."
+        # Check if Nmap failed because -sV requires privileges (less common with -sT, but possible)
+        elif "requires root privileges" in str(e).lower() or "permission denied" in str(e).lower():
+             error_msg = f"Nmap reported permission error during scan (-sT -sV). While -sT usually works, -sV might require privileges on some systems or for certain probes. Error: {e}"
+        else:
+             error_msg = f"Nmap PortScannerError during scan: {e}. Check Nmap installation and permissions."
+        return {
+            "status": "error",
+            "error_message": error_msg,
+        }
+    except KeyError as e:
+        # Handle cases where expected keys are missing in the result dictionary
+        return {
+            "status": "error",
+            "error_message": f"Error parsing Nmap results for {original_target}. Missing key: {e}. Host might be down or scan blocked.",
+        }
+    except Exception as e:
+        # Catch any other unexpected errors
+        return {
+            "status": "error",
+            "error_message": f"An unexpected error occurred scanning {original_target} ({type(e).__name__}): {e}",
+        }
+
+
 def GetSshServerVersion(target: str, port: int = 22) -> dict:
     """
     Attempts to retrieve the SSH server identification banner by connecting
@@ -507,7 +677,11 @@ root_agent = Agent(
         "Agent to probe and answer questions about a specific host on the internet."
     ),
     instruction=(
-        "I can take an IP address or hostname, probe it and generate a quick report for you to review."
+        """I can take an IP address or hostname, probe it and 
+        generate a professional looking (but short) report for 
+        you to review. I will make an attempt to gather as much 
+        information about the host as possible and provide it in the report. """
     ),
-    tools=[NmapConnectTCPScan,GetWebServerHeader,GetSshServerVersion],
+    tools=[NmapTCPVersionScan,NmapConnectTCPScan,GetWebServerHeader,GetSshServerVersion],
 )
+ 
