@@ -19,13 +19,15 @@ An Agent based host prober - probe a host/ip using nmap/curl/etc and report back
   * NmapTCPVersionScan - Does nmap TCP scan and tries to get the server version
   * GetWebServerHeader - Uses curl to get HTTP response and guesses server name
   * GetSshServerVersion - Probes ssh server and extracts version info
+  * GetCpeInfo - Gets CPE and CVE information about the versions detected
 * Its currently using Gemini 2.0 Flash (you need to get your own key) - but its expected to be model and platform agnostic
 
 ## How to run
 ADK can be used over the web or using shell
 * "adk web" creates a web server which you can interact using your browser
 * "adk run aprobe" allows you to interact with the engine in command line
-* Below is the output of a host I asked it to probe
+* Below is the output of when I asked it to scan **scanme.nmap.org**
+
   ```
   user: please check scanme.nmap.org
     Starting Nmap TCP Version scan (-sT -sV) on scanme.nmap.org. This might take longer...
