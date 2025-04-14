@@ -2,6 +2,38 @@
 An Agent based host prober - probe a host/ip using nmap/curl/etc and report back a human readable report.
 * Primarily created to test the ease of using Google's ADK (Agent development kit).
 
+## Sample report
+
+**High-Level Report for scanme.nmap.org**
+
+  **Target:** scanme.nmap.org (45.33.32.156)
+
+  **Open Ports & Services:**
+
+  *   **22/TCP:** SSH - OpenSSH 6.6.1p1 Ubuntu 2ubuntu2.13. This is a very old version of OpenSSH. Upgrade immediately!
+  *   **53/TCP:** domain. Needs further investigation to determine the DNS server in use and potential vulnerabilities.
+  *   **80/TCP:** HTTP - Apache 2.4.7 (Ubuntu). This is a very old version of Apache. There are multiple known vulnerabilities.
+  *   **9929/TCP:** nping-echo. Likely used for testing purposes by Nmap.
+  *   **31337/TCP:** tcpwrapped. This port is likely intentionally left open as a honeypot or for testing.
+
+  **Potential Vulnerabilities & Recommendations:**
+
+  1.  **Apache:** The detected Apache version is extremely outdated and vulnerable. Multiple CVEs exist. Upgrade to the latest stable version immediately. Some of the CVEs associated with this version include: CVE-2007-4723, CVE-2009-0796, CVE-2009-2299, CVE-2011-1176, CVE-2011-2688, CVE-2012-3526, CVE-2012-4001, CVE-2012-4360, CVE-2013-0941, CVE-2013-0942, CVE-2013-2765, CVE-2013-4365, CVE-2013-6438, CVE-2014-0098, CVE-2013-5704, CVE-2014-0117, CVE-2014-0118, CVE-2014-0226, CVE-2014-0231, CVE-2014-3523.
+  2.  **OpenSSH:** The detected OpenSSH version is also quite old and should be upgraded.
+  3.  **General:** Regularly update the OS (Ubuntu) and all installed packages to address potential vulnerabilities.
+
+  **Next Steps:**
+
+  *   **Immediately upgrade Apache and OpenSSH.**
+  *   Investigate the services running on ports 53, 9929 and 31337 to determine their purpose and security implications.
+  *   Perform a more comprehensive vulnerability scan using tools like Nessus or OpenVAS to identify any specific vulnerabilities.
+  *   Review the changelogs and security advisories for Apache and OpenSSH for any relevant security patches.
+  *   Ensure that appropriate firewall rules are in place to restrict access to the open ports.
+  *   Monitor security mailing lists and vulnerability databases for new vulnerabilities affecting the identified software versions.
+
+  This server is running very outdated software and is likely highly vulnerable. Immediate action is required.
+
+
 ## Setup
 * Clone this repository
 * Run init.sh or manually setup the python modules as needed
@@ -57,33 +89,3 @@ ADK can be used over the web or using shell
     Found 0 associated CVE(s).
     [aprober]: Okay, I found CVEs associated with Apache 2.4.7. There are quite a few, and I've only retrieved a limited number (due to the API limit). I didn't find any associated CVEs with OpenSSH 6.6.1p1.
   ```
-## And here is the final report it generated
-
-**High-Level Report for scanme.nmap.org**
-
-  **Target:** scanme.nmap.org (45.33.32.156)
-
-  **Open Ports & Services:**
-
-  *   **22/TCP:** SSH - OpenSSH 6.6.1p1 Ubuntu 2ubuntu2.13. This is a very old version of OpenSSH. Upgrade immediately!
-  *   **53/TCP:** domain. Needs further investigation to determine the DNS server in use and potential vulnerabilities.
-  *   **80/TCP:** HTTP - Apache 2.4.7 (Ubuntu). This is a very old version of Apache. There are multiple known vulnerabilities.
-  *   **9929/TCP:** nping-echo. Likely used for testing purposes by Nmap.
-  *   **31337/TCP:** tcpwrapped. This port is likely intentionally left open as a honeypot or for testing.
-
-  **Potential Vulnerabilities & Recommendations:**
-
-  1.  **Apache:** The detected Apache version is extremely outdated and vulnerable. Multiple CVEs exist. Upgrade to the latest stable version immediately. Some of the CVEs associated with this version include: CVE-2007-4723, CVE-2009-0796, CVE-2009-2299, CVE-2011-1176, CVE-2011-2688, CVE-2012-3526, CVE-2012-4001, CVE-2012-4360, CVE-2013-0941, CVE-2013-0942, CVE-2013-2765, CVE-2013-4365, CVE-2013-6438, CVE-2014-0098, CVE-2013-5704, CVE-2014-0117, CVE-2014-0118, CVE-2014-0226, CVE-2014-0231, CVE-2014-3523.
-  2.  **OpenSSH:** The detected OpenSSH version is also quite old and should be upgraded.
-  3.  **General:** Regularly update the OS (Ubuntu) and all installed packages to address potential vulnerabilities.
-
-  **Next Steps:**
-
-  *   **Immediately upgrade Apache and OpenSSH.**
-  *   Investigate the services running on ports 53, 9929 and 31337 to determine their purpose and security implications.
-  *   Perform a more comprehensive vulnerability scan using tools like Nessus or OpenVAS to identify any specific vulnerabilities.
-  *   Review the changelogs and security advisories for Apache and OpenSSH for any relevant security patches.
-  *   Ensure that appropriate firewall rules are in place to restrict access to the open ports.
-  *   Monitor security mailing lists and vulnerability databases for new vulnerabilities affecting the identified software versions.
-
-  This server is running very outdated software and is likely highly vulnerable. Immediate action is required.
