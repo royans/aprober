@@ -6,12 +6,106 @@ import requests
 import socket
 import errno # Needed for GetSshServerVersion error check
 from urllib.parse import urlparse # To help validate input
+from bs4 import BeautifulSoup # Added for parsing HTML
 from zoneinfo import ZoneInfo
 from google.adk.agents import Agent
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 import nvdlib
 import cpe
+
+
+
+def FetchWebLibraries(target: str, timeout: int = 10) -> dict:
+    """Attempts to fetch the root page ('/') of a target host via HTTPS and
+       then HTTP, parses the HTML, and extracts the 'src' attributes from
+       <script> tags.
+
+    Args:
+        target (str): The hostname or IP address of the web server.
+        timeout (int): Request timeout in seconds. Defaults to 10.
+
+    Returns:
+        dict: A dictionary containing:
+              - 'status': 'success' or 'error'.
+              - 'url': The URL that was successfully fetched (e.g., 'https://...')
+              - 'libraries': A list of strings, where each string is the 'src'
+                             attribute value from a <script> tag found on the page.
+                             Returns an empty list if none found or on error.
+              - 'error_message': A description of the error (if failed).
+    """
+    protocols = ['https', 'http']
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    last_error = None
+
+    for protocol in protocols:
+        url = f"{protocol}://{target}/"
+        print(f"Attempting to fetch web libraries from: {url}")
+        try:
+            # Make the request
+            response = requests.get(url, headers=headers, timeout=timeout, verify=False, allow_redirects=True) # verify=False ignores SSL cert errors, allow_redirects follows redirects
+            response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+
+            # Check if content type looks like HTML
+            content_type = response.headers.get('content-type', '').lower()
+            if 'html' not in content_type:
+                 print(f"Warning: Content-Type at {url} is '{content_type}', not HTML. Skipping script parsing.")
+                 return {
+                     "status": "success", # Successfully fetched, but not HTML
+                     "url": url,
+                     "libraries": [],
+                     "error_message": f"Content-Type was '{content_type}', expected HTML."
+                 }
+
+            # Parse HTML content
+            soup = BeautifulSoup(response.text, 'html.parser')
+            script_tags = soup.find_all('script', src=True) # Find <script> tags with a 'src' attribute
+            libraries = [tag['src'] for tag in script_tags] # Extract the 'src' value
+
+            print(f"Successfully fetched and parsed {url}. Found {len(libraries)} script sources.")
+            return {
+                "status": "success",
+                "url": url,
+                "libraries": libraries,
+                "error_message": None
+            }
+
+        except requests.exceptions.HTTPError as e:
+            last_error = f"HTTP Error accessing {url}: {e}"
+            print(last_error)
+            # Continue to next protocol if applicable
+        except requests.exceptions.SSLError as e:
+            last_error = f"SSL Error accessing {url}: {e}. Trying next protocol if available."
+            print(last_error)
+            # Continue to next protocol (likely HTTP)
+        except requests.exceptions.ConnectionError as e:
+            last_error = f"Connection Error accessing {url}: {e}. Trying next protocol if available."
+            print(last_error)
+            # Continue to next protocol if applicable
+        except requests.exceptions.Timeout:
+            last_error = f"Timeout accessing {url} after {timeout} seconds."
+            print(last_error)
+            # Continue to next protocol if applicable
+        except requests.exceptions.RequestException as e:
+            last_error = f"General Request Error accessing {url}: {e}"
+            print(last_error)
+            # Continue to next protocol if applicable
+        except Exception as e:
+            # Catch potential BeautifulSoup errors or other unexpected issues
+            last_error = f"An unexpected error occurred processing {url} ({type(e).__name__}): {e}"
+            print(last_error)
+            # Stop trying for this target on unexpected errors
+
+    # If loop finishes without success
+    print(f"Failed to fetch web libraries from {target} using {protocols}.")
+    return {
+        "status": "error",
+        "url": None,
+        "libraries": [],
+        "error_message": last_error or f"Could not connect to {target} via HTTPS or HTTP."
+    }
 
 
 def NmapHostDiscoveryScan(network_cidr: str) -> dict:
@@ -807,9 +901,11 @@ instruction_env = """I can take an IP address or hostname, probe it and  generat
             (1) Do an initial probe to understand which of the host/hosts requested by you are online
             (2) Gather server headers (for server name and version) if available using nmap
             (3) Make direct Web server and SSH server requests to gather more info on server names and versions as well
-            (4) If I have more information about server names and versions and can create a CPE, I'll check if it matches any known issues
-            (5) If there are any CVEs mapped to this, I'll pull more information on them as well
-            (6) At the end, I'll generate a high level report which provides insight into what services are running,
+            (4) If Web servers are active, I'll fetch the index page and find all the javascript libraries being used by the server.
+            (5) If I have more information about server names and versions and can create a CPE, I'll check if it matches any known issues
+            (6) If there are any CVEs mapped to this, I'll pull more information on them as well
+            (7) At the end, I'll generate a high level report which provides insight into what services are running,
+                what libraries are being used by the web pages,
                 what versions may be outdated and may require an update,
                 share info on what CVEs one would have to pay attention to
                 and provide more details on the CVEs to judge the severity of the issue.
@@ -825,6 +921,9 @@ instruction_env = """I can take an IP address or hostname, probe it and  generat
                 *   The host is running an Ubuntu Linux kernel.
                 *   Open ports: 22 (SSH), 53 (domain), 80 (HTTP), 9929, 31337
                 *   Web server: Apache 2.4.7 (Ubuntu)
+                    Javascript libraries used:
+                    * Google Ads
+                    * Facebook login
                 *   SSH server: OpenSSH 6.6.1p1 Ubuntu 2ubuntu2.13
             
             
@@ -842,7 +941,7 @@ if url_env and model_env:
     model=LiteLlm(model=model_env,api_base=url_env,)
     root_agent = LlmAgent(
         name="aprobe",
-        model=LiteLlm(model="ollama/gemma2:latest",api_base="http://torque:11434",),
+        model=LiteLlm(model="ollama/gemma2:latest",api_base="http://localhost:11434",),
         description=(description_env),
         instruction=(instruction_env),
         tools=[
@@ -852,6 +951,7 @@ if url_env and model_env:
             GetCpeInfo, 
             TranslateCpeFormat,
             NmapHostDiscoveryScan,
+            FetchWebLibraries,
         ],
     )
 
@@ -868,6 +968,7 @@ else:
                 GetCpeInfo, 
                 TranslateCpeFormat,
                 NmapHostDiscoveryScan,
+                FetchWebLibraries,
             ],
     )
     
