@@ -1,5 +1,6 @@
 import datetime
 import nmap
+import ipaddress # Added for CIDR validation
 import os
 import requests
 import socket
@@ -11,6 +12,122 @@ from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 import nvdlib
 import cpe
+
+
+def NmapHostDiscoveryScan(network_cidr: str) -> dict:
+    """Performs an Nmap Ping Scan (-sn) to discover active hosts
+       within a specified network range (CIDR notation). Does *not*
+       perform port scanning. Requires nmap to be installed, but
+       generally *does not* require root privileges.
+
+    Args:
+        network_cidr (str): The network range to scan in CIDR notation
+                            (e.g., "192.168.1.0/24", "10.0.0.0/8",
+                            "2001:db8::/64").
+
+    Returns:
+        dict: A dictionary containing:
+              - 'status': 'success' or 'error'.
+              - 'active_hosts': A list of IP addresses (str) found to be active/up.
+                                Returns an empty list if no hosts responded.
+              - 'error_message': A description of the error (if failed).
+              - 'scan_stats': A dictionary with Nmap scan statistics (e.g.,
+                              elapsed time, hosts up/down).
+    """
+    nm = None
+
+    # --- Validate Input CIDR ---
+    try:
+        # Use ipaddress module to check if it's a valid network address
+        ipaddress.ip_network(network_cidr, strict=False) # strict=False allows host bits set
+    except ValueError:
+        return {
+            "status": "error",
+            "error_message": f"Invalid CIDR notation provided: '{network_cidr}'",
+            "active_hosts": [],
+            "scan_stats": {}
+        }
+    except Exception as e: # Catch other potential validation errors
+        return {
+            "status": "error",
+            "error_message": f"Error validating CIDR '{network_cidr}': {e}",
+            "active_hosts": [],
+            "scan_stats": {}
+        }
+
+    # --- Initialize Nmap Scanner ---
+    try:
+         nm = nmap.PortScanner()
+    except nmap.PortScannerError as e:
+        if "nmap program was not found" in str(e):
+             error_msg = "Nmap executable not found. Please install Nmap and ensure it's in your system's PATH."
+        else:
+             error_msg = f"Nmap initialization error: {e}"
+        return {
+            "status": "error",
+            "error_message": error_msg,
+            "active_hosts": [],
+            "scan_stats": {}
+        }
+    except Exception as e: # Catch other init errors
+        return {
+            "status": "error",
+            "error_message": f"Unexpected error initializing Nmap: {e}",
+            "active_hosts": [],
+            "scan_stats": {}
+        }
+
+    # --- Perform Host Discovery Scan ---
+    try:
+        print(f"Starting Nmap Host Discovery scan (-sn) on {network_cidr}. This may take some time depending on network size...")
+        # -sn: Ping Scan (Host Discovery) - disables port scan
+        # It sends ICMP echo, TCP SYN to 443, TCP ACK to 80, ICMP timestamp by default
+        scan_args = '-sn'
+        # Note: For potentially better results on firewalled networks, consider adding
+        # probe types like -PS (TCP SYN), -PA (TCP ACK), -PU (UDP), -PE (ICMP Echo)
+        # e.g., scan_args = '-sn -PS80,443 -PA80 -PU53 -PE'
+        # However, some of these might require root privileges. -sn is usually sufficient.
+        scan_results = nm.scan(hosts=network_cidr, arguments=scan_args, sudo=False) # Explicitly avoid sudo for -sn
+        print(f"Host discovery scan complete for {network_cidr}.")
+
+        # --- Process Results ---
+        active_hosts = nm.all_hosts() # Returns a list of IPs that are 'up'
+        scan_stats = scan_results.get('nmap', {}).get('scanstats', {})
+
+        print(f"Scan Summary: {scan_stats.get('uphosts', '0')} hosts up, "
+              f"{scan_stats.get('downhosts', '0')} hosts down in "
+              f"{scan_stats.get('elapsed', '?')} seconds.")
+
+        return {
+            "status": "success",
+            "active_hosts": active_hosts, # List of IPs found up
+            "scan_stats": scan_stats     # Dictionary of scan statistics
+        }
+
+    except nmap.PortScannerError as e:
+        # Catch errors during the scan execution phase
+        error_msg = f"Nmap PortScannerError during scan: {e}. "
+        if "nmap program was not found" in str(e):
+             error_msg += "Please install Nmap and ensure it's in your system's PATH."
+        # Although -sn usually doesn't need root, catch permission errors just in case
+        elif "requires root privileges" in str(e).lower() or "permission denied" in str(e).lower():
+             error_msg += "Nmap reported a permission error even for host discovery (-sn). This might indicate unusual system configuration or specific probe issues."
+        else:
+             error_msg += "Check Nmap installation, permissions, network connectivity, and the target specification."
+        return {
+            "status": "error",
+            "error_message": error_msg,
+            "active_hosts": [],
+            "scan_stats": {}
+        }
+    except Exception as e:
+        # Catch any other unexpected errors
+        return {
+            "status": "error",
+            "error_message": f"An unexpected error occurred scanning {network_cidr} ({type(e).__name__}): {e}",
+            "active_hosts": [],
+            "scan_stats": {}
+        }
 
 
 def TranslateCpeFormat(cpe_string: str, target_format: str) -> dict:
@@ -697,7 +814,22 @@ instruction_env = """I can take an IP address or hostname, probe it and  generat
                 share info on what CVEs one would have to pay attention to
                 and provide more details on the CVEs to judge the severity of the issue.
             
-            The final report would be a nicely formated Text format output which is easy to read and consume by a security expert who is trying to fix the issues.
+            The final report would be a nicely formated Text (use spaces to highlight report sections)  which is easy to read 
+            and consume by security experts who are trying to identify and fix the top issues.
+            
+            For example the report could look like this
+            
+            
+            Scanned host: scanme.nmap.org (45.33.32.156)
+            [Summary]
+                *   The host is running an Ubuntu Linux kernel.
+                *   Open ports: 22 (SSH), 53 (domain), 80 (HTTP), 9929, 31337
+                *   Web server: Apache 2.4.7 (Ubuntu)
+                *   SSH server: OpenSSH 6.6.1p1 Ubuntu 2ubuntu2.13
+            
+            
+            
+            
             """
 
 try:
@@ -719,6 +851,7 @@ if url_env and model_env:
             GetSshServerVersion,
             GetCpeInfo, 
             TranslateCpeFormat,
+            NmapHostDiscoveryScan,
         ],
     )
 
@@ -734,6 +867,7 @@ else:
                 GetSshServerVersion,
                 GetCpeInfo, 
                 TranslateCpeFormat,
+                NmapHostDiscoveryScan,
             ],
     )
     
