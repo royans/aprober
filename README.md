@@ -55,6 +55,7 @@ An Agent based host prober - probe a host/ip using nmap/curl/etc and report back
   * **GetWebServerHeader** - Uses curl to get HTTP response and guesses server name
   * **GetSshServerVersion** - Probes ssh server and extracts version info
   * **GetCpeInfo** - Gets CPE and CVE information about the versions detected
+  * **FetchWebLibraries** - Identify JS libraries used by the webserver
 * Its currently using Gemini 2.0 Flash (you need to get your own key) - but its expected to be model and platform agnostic
 
 ## How to run
