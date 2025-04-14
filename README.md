@@ -57,7 +57,7 @@ ADK can be used over the web or using shell
     Found 0 associated CVE(s).
     [aprober]: Okay, I found CVEs associated with Apache 2.4.7. There are quite a few, and I've only retrieved a limited number (due to the API limit). I didn't find any associated CVEs with OpenSSH 6.6.1p1.
   ```
-* And here is the final report
+## And here is the final report it generated
 
 <hr>
 
