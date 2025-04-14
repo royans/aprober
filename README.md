@@ -50,11 +50,11 @@ An Agent based host prober - probe a host/ip using nmap/curl/etc and report back
 ## How it works
 * ADK [https://google.github.io/adk-docs/] - Agent development kit from Google allows one to create GenAI agents which can interact with each other to solve complex problems
 * This version of aprober contains the following agents
-  * NmapHostDiscoveryScan - Quick scan of the network for online hosts- supports CIDR notation as input
-  * NmapTCPVersionScan - Does nmap TCP scan and tries to get the server version
-  * GetWebServerHeader - Uses curl to get HTTP response and guesses server name
-  * GetSshServerVersion - Probes ssh server and extracts version info
-  * GetCpeInfo - Gets CPE and CVE information about the versions detected
+  * **NmapHostDiscoveryScan** - Quick scan of the network for online hosts- supports CIDR notation as input
+  * **NmapTCPVersionScan** - Does nmap TCP scan and tries to get the server version
+  * **GetWebServerHeader** - Uses curl to get HTTP response and guesses server name
+  * **GetSshServerVersion** - Probes ssh server and extracts version info
+  * **GetCpeInfo** - Gets CPE and CVE information about the versions detected
 * Its currently using Gemini 2.0 Flash (you need to get your own key) - but its expected to be model and platform agnostic
 
 ## How to run
