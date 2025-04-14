@@ -2,6 +2,8 @@
 An Agent based host prober - probe a host/ip using nmap/curl/etc and report back a human readable report.
 * Primarily created to test the ease of using Google's ADK (Agent development kit).
 
+<div style='border:1px solid gray; padding:5px;'>
+
 ## Sample report
 
 **High-Level Report for scanme.nmap.org**
@@ -32,7 +34,7 @@ An Agent based host prober - probe a host/ip using nmap/curl/etc and report back
   *   Monitor security mailing lists and vulnerability databases for new vulnerabilities affecting the identified software versions.
 
   This server is running very outdated software and is likely highly vulnerable. Immediate action is required.
-
+</div>
 
 ## Setup
 * Clone this repository
