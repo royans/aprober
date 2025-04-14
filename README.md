@@ -1,4 +1,4 @@
-# aprober
+# aProber
 An Agent based host prober - probe a host/ip using nmap/curl/etc and report back a human readable report.
 * Primarily created to test the ease of using Google's ADK (Agent development kit).
 
@@ -49,7 +49,7 @@ An Agent based host prober - probe a host/ip using nmap/curl/etc and report back
 
 ## How it works
 * ADK [https://google.github.io/adk-docs/] - Agent development kit from Google allows one to create GenAI agents which can interact with each other to solve complex problems
-* This version of aprober contains the following agents
+* This version of aProber contains the following agents
   * **NmapHostDiscoveryScan** - Quick scan of the network for online hosts- supports CIDR notation as input
   * **NmapTCPVersionScan** - Does nmap TCP scan and tries to get the server version
   * **GetWebServerHeader** - Uses curl to get HTTP response and guesses server name
