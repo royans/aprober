@@ -59,8 +59,6 @@ ADK can be used over the web or using shell
   ```
 ## And here is the final report it generated
 
-<hr>
-
 **High-Level Report for scanme.nmap.org**
 
   **Target:** scanme.nmap.org (45.33.32.156)
